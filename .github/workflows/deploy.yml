@@ -1,39 +1,63 @@
-name: CI/CD to EC2
+name: CI/CD to EC2 (K8s, SHA tagging)
 
 on:
   push:
-    branches: [ "master" ]
+    branches:
+      - master   # change to 'main' if your default branch is main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
+    # 1) Checkout repo
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
+    # 2) Login to Docker Hub
     - name: Login to Docker Hub
-      uses: docker/login-action@v2
+      uses: docker/login-action@v3
       with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+        username: ${{ secrets.DOCKER_USERNAME }}   # e.g., lakshmibi
+        password: ${{ secrets.DOCKER_PASSWORD }}   # password or Docker Hub PAT
 
-    - name: Build Docker image
+    # 3) Build Docker image from demo-app/ using the Dockerfile inside demo-app/
+    #    Tag with commit SHA + latest (two tags)
+    - name: Build Docker image (SHA + latest)
       run: |
-        docker build -f demo-app/Dockerfile -t ${{ secrets.DOCKER_REPO }}:latest demo-app
+        docker build -f demo-app/Dockerfile -t ${{ secrets.DOCKER_REPO }}:${{ github.sha }} demo-app
+        docker tag  ${{ secrets.DOCKER_REPO }}:${{ github.sha }} ${{ secrets.DOCKER_REPO }}:latest
 
-    - name: Push Docker image
+    # 4) Push both tags to Docker Hub
+    - name: Push Docker image (SHA + latest)
       run: |
+        docker push ${{ secrets.DOCKER_REPO }}:${{ github.sha }}
         docker push ${{ secrets.DOCKER_REPO }}:latest
 
-    - name: Deploy to EC2
-      uses: appleboy/ssh-action@v1.0.0
+    # 5) SSH into EC2 and deploy to Minikube
+    - name: Deploy to EC2 Minikube (update image to SHA, apply, rollout)
+      uses: appleboy/ssh-action@v1.2.0
       with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USER }}
-        key: ${{ secrets.EC2_SSH_KEY }}
+        host: ${{ secrets.EC2_HOST }}     # e.g., 98.84.xxx.xxx
+        username: ec2-user
+        key: ${{ secrets.EC2_SSH_KEY }}   # full PEM contents
         script: |
-          docker stop myapp || true
-          docker rm myapp || true
-          docker pull ${{ secrets.DOCKER_REPO }}:latest
-          docker run -d -p 3000:3000 --name myapp ${{ secrets.DOCKER_REPO }}:latest
+          set -e
+          # Ensure context is minikube (won't fail if already set)
+          kubectl config use-context minikube || true
+
+          echo "🔧 Updating image in ~/deployment.yaml to SHA: ${{ github.sha }}"
+          # Replace the image line to use the new SHA tag
+          sed -i "s#^\(\s*image:\s*\).*#\1${{ secrets.DOCKER_REPO }}:${{ github.sha }}#g" ~/deployment.yaml
+
+          echo "📦 Applying deployment.yaml"
+          kubectl apply -f ~/deployment.yaml
+
+          echo "🔁 Rolling out deployment demo-app-deployment"
+          kubectl rollout restart deployment demo-app-deployment
+
+          echo "⏳ Waiting for rollout to finish…"
+          kubectl rollout status deployment/demo-app-deployment --timeout=180s
+
+          echo "🔍 Verifying final image on cluster:"
+          kubectl get deploy demo-app-deployment -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
