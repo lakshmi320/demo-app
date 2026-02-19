@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-app        
+  template:
+    metadata:
+      labels:
+        app: demo-app      
+    spec:
+      containers:
+      - name: demo-app
+        image: lakshmibi/demo-app:f2ea7d52af1d4620ea9e9759ed465662039c721e
+        ports:
+        - containerPort: 8080
