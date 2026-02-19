@@ -1,57 +1,18 @@
-name: CI/CD to EC2 (K8s, SHA tagging)
-
-on:
-  push:
-    branches:
-      - master   # change to 'main' if your default branch is main
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-
-    steps:
-    # 1) Checkout repo
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    # 2) Login to Docker Hub
-    - name: Login to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}   # e.g., lakshmibi
-        password: ${{ secrets.DOCKER_PASSWORD }}   # password or Docker Hub PAT
-
-    # 3) Build Docker image from demo-app/ using the Dockerfile inside demo-app/
-    #    Tag with commit SHA + latest (two tags)
-    - name: Build Docker image (SHA + latest)
-      run: |
-        docker build -f demo-app/Dockerfile -t ${{ secrets.DOCKER_REPO }}:${{ github.sha }} demo-app
-        docker tag  ${{ secrets.DOCKER_REPO }}:${{ github.sha }} ${{ secrets.DOCKER_REPO }}:latest
-
-    # 4) Push both tags to Docker Hub
-    - name: Push Docker image (SHA + latest)
-      run: |
-        docker push ${{ secrets.DOCKER_REPO }}:${{ github.sha }}
-        docker push ${{ secrets.DOCKER_REPO }}:latest
-
-    # 5) SSH into EC2 and deploy to Minikube
-    - name: Deploy to EC2 Minikube (update image to SHA, apply, rollout)
+- name: Deploy to EC2 Minikube (update image to SHA, apply, rollout)
       uses: appleboy/ssh-action@v1.2.0
       with:
-        host: ${{ secrets.EC2_HOST }}     # e.g., 98.84.xxx.xxx
+        host: ${{ secrets.EC2_HOST }}
         username: ec2-user
-        key: ${{ secrets.EC2_SSH_KEY }}   # full PEM contents
+        key: ${{ secrets.EC2_SSH_KEY }}
         script: |
           set -e
-          # Ensure context is minikube (won't fail if already set)
           kubectl config use-context minikube || true
 
-          echo "🔧 Updating image in ~/deployment.yaml to SHA: ${{ github.sha }}"
-          # Replace the image line to use the new SHA tag
-          sed -i "s#^\(\s*image:\s*\).*#\1${{ secrets.DOCKER_REPO }}:${{ github.sha }}#g" ~/deployment.yaml
+          echo "🔧 Updating image in deployment.yaml to SHA: ${{ github.sha }}"
+          sed -i "s#^\(\s*image:\s*\).*#\1${{ secrets.DOCKER_REPO }}:${{ github.sha }}#g" /home/ec2-user/demo-app/deployment.yaml
 
           echo "📦 Applying deployment.yaml"
-          kubectl apply -f ~/deployment.yaml
+          kubectl apply -f /home/ec2-user/demo-app/deployment.yaml
 
           echo "🔁 Rolling out deployment demo-app-deployment"
           kubectl rollout restart deployment demo-app-deployment
