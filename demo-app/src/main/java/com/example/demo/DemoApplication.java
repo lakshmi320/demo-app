@@ -24,7 +24,7 @@ class HelloController {
 
     @GetMapping("/")
     public String hello() {
-        return "Hello from Spring Boot on Java 21! This is created By Shivam singh & Lakshmi";
+        return Hello from Spring Boot on Java 21! This is created By Shivam singh & Lakshmi";
     }
 
     // Optional: a tiny health endpoint useful for readiness checks
