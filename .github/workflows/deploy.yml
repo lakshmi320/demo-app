@@ -22,7 +22,7 @@ jobs:
       uses: actions/setup-java@v3
       with:
         distribution: 'temurin'
-        java-version: '17'
+        java-version: '21'
 
     # Build Maven FIRST so that target/ folder exists for Sonar
     - name: Build with Maven
