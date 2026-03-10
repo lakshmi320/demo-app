@@ -24,6 +24,7 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      # Build Maven FIRST so that demo-app/target/ exists for Sonar
       - name: Build with Maven (demo-app)
         working-directory: demo-app
         run: mvn clean install -DskipTests
@@ -35,16 +36,22 @@ jobs:
           key: ${{ runner.os }}-sonar
           restore-keys: ${{ runner.os }}-sonar
 
-      - name: SonarQube Scan (demo-app)
+      # >>> FIX: keep files where they are; pass properties via args
+      - name: SonarQube Scan (root properties, code in demo-app)
         uses: SonarSource/sonarqube-scan-action@v2
         with:
-          projectBaseDir: demo-app     # ⭐ REQUIRED FIX
+          projectBaseDir: .     # properties file is at repo root
+          args: >
+            -Dsonar.projectKey=demo-app
+            -Dsonar.projectName=demo-app
+            -Dsonar.sources=demo-app/src
+            -Dsonar.java.binaries=demo-app/target
         env:
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}   # e.g., http://98.84.183.113:9000
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}         # token from SonarQube UI
 
       ###############################################
-      # Build + Push Docker image
+      # 3) CONTAINERIZE & PUSH
       ###############################################
 
       - name: Login to Docker Hub
@@ -64,24 +71,31 @@ jobs:
           docker push ${{ secrets.DOCKER_REPO }}:latest
 
       ###############################################
-      # Deploy to EC2 Minikube
+      # 4) DEPLOY TO EC2 MINIKUBE OVER SSH
       ###############################################
 
-      - name: Deploy to EC2 Minikube
+      - name: Deploy to EC2 Minikube (update image to SHA, apply, rollout)
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.EC2_HOST }}
+          host: ${{ secrets.EC2_HOST }}         # EC2 public IP
           username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
+          key: ${{ secrets.EC2_SSH_KEY }}       # private key content
           script: |
             set -e
+            # Ensure kubectl points to minikube
             kubectl config use-context minikube || true
 
-            echo "Updating image in deployment.yaml to SHA: ${{ github.sha }}"
+            echo "🔧 Updating image in ~/deployment.yaml to SHA: ${{ github.sha }}"
             sed -i "s#^\(\s*image:\s*\).*#\1${{ secrets.DOCKER_REPO }}:${{ github.sha }}#g" ~/deployment.yaml
 
+            echo "📦 Applying deployment.yaml"
             kubectl apply -f ~/deployment.yaml
+
+            echo "🔁 Rolling out deployment demo-app-deployment"
             kubectl rollout restart deployment demo-app-deployment
+
+            echo "⏳ Waiting for rollout to finish…"
             kubectl rollout status deployment/demo-app-deployment --timeout=180s
 
+            echo "🔍 Final image version on cluster:"
             kubectl get deploy demo-app-deployment -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
