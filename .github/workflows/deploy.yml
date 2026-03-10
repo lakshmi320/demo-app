@@ -24,7 +24,6 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      # Build Maven FIRST so that target/ exists for Sonar
       - name: Build with Maven (demo-app)
         working-directory: demo-app
         run: mvn clean install -DskipTests
@@ -39,13 +38,13 @@ jobs:
       - name: SonarQube Scan (demo-app)
         uses: SonarSource/sonarqube-scan-action@v2
         with:
-          projectBaseDir: demo-app   # IMPORTANT since your pom.xml is in demo-app/
+          projectBaseDir: demo-app     # ⭐ REQUIRED FIX
         env:
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}   # e.g., http://98.84.183.113:9000
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}         # token from SonarQube UI
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       ###############################################
-      # 3) CONTAINERIZE & PUSH
+      # Build + Push Docker image
       ###############################################
 
       - name: Login to Docker Hub
@@ -65,31 +64,24 @@ jobs:
           docker push ${{ secrets.DOCKER_REPO }}:latest
 
       ###############################################
-      # 4) DEPLOY TO EC2 MINIKUBE OVER SSH
+      # Deploy to EC2 Minikube
       ###############################################
 
-      - name: Deploy to EC2 Minikube (update image to SHA, apply, rollout)
+      - name: Deploy to EC2 Minikube
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.EC2_HOST }}         # EC2 public IP
+          host: ${{ secrets.EC2_HOST }}
           username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}       # private key content
+          key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             set -e
-            # Ensure kubectl points to minikube
             kubectl config use-context minikube || true
 
-            echo "🔧 Updating image in ~/deployment.yaml to SHA: ${{ github.sha }}"
+            echo "Updating image in deployment.yaml to SHA: ${{ github.sha }}"
             sed -i "s#^\(\s*image:\s*\).*#\1${{ secrets.DOCKER_REPO }}:${{ github.sha }}#g" ~/deployment.yaml
 
-            echo "📦 Applying deployment.yaml"
             kubectl apply -f ~/deployment.yaml
-
-            echo "🔁 Rolling out deployment demo-app-deployment"
             kubectl rollout restart deployment demo-app-deployment
-
-            echo "⏳ Waiting for rollout to finish…"
             kubectl rollout status deployment/demo-app-deployment --timeout=180s
 
-            echo "🔍 Final image version on cluster:"
             kubectl get deploy demo-app-deployment -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
