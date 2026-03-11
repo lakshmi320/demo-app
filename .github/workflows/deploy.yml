@@ -32,8 +32,9 @@ jobs:
             -Dsonar.projectKey=demo-app \
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
             -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
-            -Dsonar.sources=src \
-            -Dsonar.java.binaries=target
+            -Dsonar.sources=src/main/java \
+            -Dsonar.tests=src/test/java
+
 
       ###############################################
       # 3) CONTAINERIZE & PUSH
