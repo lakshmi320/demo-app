@@ -30,10 +30,13 @@ jobs:
         run: |
           mvn -B verify sonar:sonar -DskipTests \
             -Dsonar.projectKey=demo-app \
-            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+            -Dsonar.projectName=demo-app \
             -Dsonar.sources=src/main/java \
-            -Dsonar.tests=src/test/java
+            -Dsonar.tests=src/test/java \
+            -Dsonar.java.binaries=target/classes \
+            -Dsonar.java.test.binaries=target/test-classes \
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
 
 
       ###############################################
